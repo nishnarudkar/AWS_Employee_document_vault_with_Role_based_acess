@@ -1,58 +1,57 @@
-# Employee Document Vault
+# AWS Employee Document Vault with Role-Based Access Control
 
-A secure, serverless employee document management system built on AWS. The system provides authenticated, role-based access to employee documents — payslips, offer letters, appraisal records, and other HR materials — through a REST API backed by AWS Lambda, Amazon S3, and DynamoDB.
+A secure, serverless enterprise document management system built on AWS. The system provides authenticated, fine-grained role-based access control (RBAC) to confidential employee records — such as payslips, offer letters, and appraisal documents — through a RESTful API powered by AWS Lambda, Amazon S3, Amazon DynamoDB, and Amazon Cognito.
 
 ---
 
 ## Table of Contents
 
-- [Live Demo](#live-demo)
 - [Overview](#overview)
+- [Live Demo](#live-demo)
 - [Architecture](#architecture)
-- [AWS Services](#aws-services)
-- [Access Control Model](#access-control-model)
-- [Document Storage Design](#document-storage-design)
+- [AWS Service Architecture](#aws-service-architecture)
+- [Access Control & Authorization Model](#access-control--authorization-model)
+- [Document Storage & Database Schema](#document-storage--database-schema)
 - [API Reference](#api-reference)
-- [Audit Logging](#audit-logging)
-- [S3 Versioning](#s3-versioning)
-- [Project Structure](#project-structure)
-- [CI/CD Pipeline](#cicd-pipeline)
-- [Testing](#testing)
-- [Load Testing Results](#load-testing-results)
-- [Security](#security)
-- [Limitations and Future Improvements](#limitations-and-future-improvements)
-
----
-
-## Live Demo
-
-**Frontend:** [http://vault-hr-frontend-nikitha-2026.s3-website-us-east-1.amazonaws.com](http://vault-hr-frontend-nikitha-2026.s3-website-us-east-1.amazonaws.com)
-
-The following demo accounts are available for testing each role:
-
-| Role | Username | Password |
-|---|---|---|
-| Employee | `emp001` | `Employee1@123` |
-| Manager | `mgr001` | `Manager@123` |
-| HR Admin | `hr001` | `Hr001@123` |
-
-> **Note:** These are demo credentials for a non-production environment. Do not reuse these passwords elsewhere.
+- [Monitoring, Observability & Alerting](#monitoring-observability--alerting)
+- [Performance & Load Testing Results](#performance--load-testing-results)
+- [Project Artifacts & Documentation](#project-artifacts--documentation)
+- [Repository Structure](#repository-structure)
+- [CI/CD Deployment Pipeline](#cicd-deployment-pipeline)
+- [Automated Testing](#automated-testing)
+- [Security Hardening & Best Practices](#security-hardening--best-practices)
+- [Future Enhancements](#future-enhancements)
+- [License](#license)
 
 ---
 
 ## Overview
 
-The Employee Document Vault centralizes employee documents while enforcing access based on the authenticated user's role.
+The AWS Employee Document Vault centralizes corporate HR records while enforcing strict access boundaries based on authenticated user identity and organizational role.
 
-**Supported roles:**
+### Core Features
 
-| Role | Access Scope |
-|---|---|
-| `Employee` | Own documents only |
-| `Manager` | Documents belonging to their managed employees |
-| `HR_Admin` | All documents across the organization |
+- **Fine-Grained Role-Based Authorization:** Dynamically restricts document access based on user roles embedded in Cognito JWT tokens.
+- **Serverless Architecture:** Completely pay-per-use, highly scalable backend utilizing AWS serverless primitives.
+- **Audit Traceability:** Comprehensive tracking of all write, download, and soft-delete actions in DynamoDB.
+- **Automated Deployment:** CI/CD pipeline using GitHub Actions with keyless AWS authentication via OpenID Connect (OIDC).
+- **Enterprise Observability:** Distributed request tracing via AWS X-Ray and CloudWatch latency/error rate alarms with SNS notifications.
 
-The backend is fully serverless, using Amazon Cognito for authentication, API Gateway for routing, AWS Lambda for business logic, Amazon S3 for document storage, and DynamoDB for metadata and audit records.
+---
+
+## Live Demo
+
+- **Frontend Endpoint:** [http://vault-hr-frontend-nikitha-2026.s3-website-us-east-1.amazonaws.com](http://vault-hr-frontend-nikitha-2026.s3-website-us-east-1.amazonaws.com)
+
+### Pre-configured Demo Credentials
+
+| Role | Username | Password | Scope of Access |
+|---|---|---|---|
+| Employee | `emp001` | `Employee1@123` | Access restricted strictly to own personal documents |
+| Manager | `mgr001` | `Manager@123` | Access restricted to documents of direct reports |
+| HR Admin | `hr001` | `Hr001@123` | Full access across all organization document records |
+
+*Note: Demo credentials are configured for evaluation in a non-production test environment.*
 
 ---
 
@@ -62,290 +61,241 @@ The backend is fully serverless, using Amazon Cognito for authentication, API Ga
 
 ---
 
-## AWS Services
+## AWS Service Architecture
 
-| Service | Purpose |
+| AWS Service | Operational Purpose |
 |---|---|
-| Amazon Cognito | Authentication and user group management |
-| Amazon API Gateway | REST API routing and Cognito authorization |
-| AWS Lambda | Business logic and resource-level authorization |
-| Amazon S3 | Document file storage with versioning |
-| Amazon DynamoDB | Document metadata and audit records |
-| AWS IAM | Service and deployment permissions |
-| Amazon CloudWatch | Metrics and operational monitoring |
-| AWS X-Ray | Distributed request tracing |
+| **Amazon Cognito** | User directory, authentication, and JWT token issuing with custom groups |
+| **Amazon API Gateway** | Regional REST API endpoint management and Cognito Authorizer integration |
+| **AWS Lambda** | Serverless backend business logic and resource-level authorization |
+| **Amazon S3** | Encrypted document file storage with enabled object versioning |
+| **Amazon DynamoDB** | Single-digit millisecond latency storage for document metadata and audit logs |
+| **AWS IAM** | Granular service-to-service execution roles following least-privilege principles |
+| **Amazon CloudWatch** | Real-time metrics, custom dashboards, latency alarms, and SNS notifications |
+| **AWS X-Ray** | Distributed request tracing and end-to-end trace maps |
+| **Amazon SNS** | Push notification service for automated threshold alert delivery |
 
 ---
 
-## Access Control Model
+## Access Control & Authorization Model
 
-Authorization is enforced at multiple layers:
+Authorization is enforced deterministically across multiple security boundaries:
 
 ```
-Cognito Authentication
-        ↓
-API Gateway Cognito Authorizer
-        ↓
-Lambda-level Authorization
-        ↓
-IAM Permissions
-        ↓
-S3 / DynamoDB
+Client Request (Bearer JWT)
+       │
+       ▼
+Amazon API Gateway (Cognito Authorizer Validation)
+       │
+       ▼
+AWS Lambda Execution (Role Claim Extraction & Resource Check)
+       │
+       ▼
+AWS IAM Role Scope (Least-Privilege Resource Access)
+       │
+       ▼
+Target Resource (Amazon S3 / DynamoDB)
 ```
 
-The Lambda layer performs resource-level authorization on each request. Role decisions are derived from the Cognito groups embedded in the JWT claims.
+### Role Matrix
+
+- **Employee (`emp001`):** Permitted to read/download/list files where `employee_id == requester_id`.
+- **Manager (`mgr001`):** Permitted to read/download/list files where `manager_id == requester_id`.
+- **HR Admin (`hr001`):** Unrestricted read, upload, soft-delete, and audit inspection permissions across all organization documents.
 
 ---
 
-## Document Storage Design
+## Document Storage & Database Schema
 
-Documents are stored in Amazon S3 using the following key structure:
+### S3 Storage Layout
+
+Documents are stored in Amazon S3 adhering to a structured partition path:
 
 ```
 documents/{employee_id}/{document_type}/{filename}
 ```
 
-**Example:**
+*Example S3 Object Key:*
+`documents/emp001/PaySlip/EMP001_August_2026_Payslip.pdf`
 
-```
-documents/emp001/PaySlip/EMP001_August_2026_Payslip.pdf
-```
+### DynamoDB Document Metadata Schema
 
-The document binary is stored in S3. DynamoDB stores the associated metadata:
-
-| Field | Description |
-|---|---|
-| `document_id` | Unique document identifier (e.g. `DOC3F9A1C...`) |
-| `employee_id` | Cognito username of the document owner |
-| `manager_id` | Cognito username of the employee's manager |
-| `uploaded_by` | Cognito username of the uploader |
-| `document_type` | Document category (e.g. `PaySlip`, `OfferLetter`) |
-| `file_name` | Original filename |
-| `s3_key` | Full S3 object key |
-| `upload_timestamp` | ISO 8601 UTC timestamp |
-| `tags` | Optional list of string tags |
-| `deleted` | Soft-delete flag (`true` / `false`) |
+| Attribute | Type | Description |
+|---|---|---|
+| `document_id` | String (PK) | Unique document identifier (e.g. `DOC3F9A1C...`) |
+| `employee_id` | String | Target employee username |
+| `manager_id` | String | Assigned manager username |
+| `uploaded_by` | String | Username of the uploader |
+| `document_type` | String | Category (`PaySlip`, `OfferLetter`, `Appraisal`) |
+| `file_name` | String | Original document file name |
+| `s3_key` | String | Full S3 object path |
+| `upload_timestamp` | String | ISO 8601 UTC timestamp |
+| `tags` | List | Metadata keywords |
+| `deleted` | Boolean | Soft-deletion status flag |
 
 ---
 
 ## API Reference
 
-**Base URL:**
+**Base Endpoint:** `https://c9d8wcytpj.execute-api.us-east-1.amazonaws.com/prod`
 
-```
-https://cidr0fzgt5.execute-api.us-east-1.amazonaws.com/prod
-```
+All HTTP requests must include a valid Bearer token in the `Authorization` header:
+`Authorization: Bearer <COGNITO_JWT_TOKEN>`
 
-All endpoints require a valid Cognito JWT in the `Authorization` header.
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/upload` | Generate a pre-signed S3 URL and create document metadata |
-| `GET` | `/files` | List documents visible to the authenticated user |
-| `GET` | `/download/{doc_id}` | Generate a pre-signed S3 download URL for an authorized document |
-| `DELETE` | `/files/{doc_id}` | Soft-delete an authorized document |
-
-**Example request:**
-
-```http
-GET /prod/files
-Authorization: Bearer <Cognito_JWT>
-```
-
-**Upload response (200):**
-
-```json
-{
-  "message": "Upload URL generated successfully",
-  "document_id": "DOC3F9A1C4B2E",
-  "upload_url": "https://s3.amazonaws.com/...",
-  "s3_key": "documents/emp001/PaySlip/payslip.pdf",
-  "expires_in": 900
-}
-```
-
-> **Security note:** Never commit real Cognito tokens, passwords, API keys, or AWS credentials to the repository.
+| Method | Endpoint | Authorization | Description |
+|---|---|---|---|
+| `POST` | `/upload` | HR_Admin | Generates pre-signed S3 upload URL and creates document record |
+| `GET` | `/files` | Authenticated Users | Retrieves list of documents filtered by user role scope |
+| `GET` | `/download/{doc_id}` | Authorized Users | Generates pre-signed S3 download URL for requested file |
+| `DELETE` | `/files/{doc_id}` | HR_Admin | Executes soft-delete on target document record |
 
 ---
 
-## Audit Logging
+## Monitoring, Observability & Alerting
 
-Document operations are recorded in DynamoDB for traceability. Each audit record contains:
+The application leverages Amazon CloudWatch and AWS X-Ray for enterprise-grade monitoring.
 
-| Field | Description |
+### CloudWatch Operational Dashboard
+![CloudWatch Dashboard](Screenshots/Employee%20Document%20Vault%20-%20CloudWatch%20Dashboard.png)
+
+### End-to-End AWS X-Ray Trace Map
+![X-Ray Trace Map](Screenshots/Employee%20Document%20Vault%20-%20Trace%20map.png)
+
+### Automated Alarms & SNS Alerting
+- **Latency Alarm:** Triggers when API latency breaches operational SLAs.
+  ![Latency Alarm](Screenshots/Employee%20Document%20Vault%20-%20Latency%20Alarm.png)
+- **Error Rate Alarm:** Triggers on HTTP 5xx or execution failure spikes.
+  ![Error Rate Alarm](Screenshots/Employee%20Document%20Vault%20-%20Error%20rate%20Alarm.png)
+- **SNS Topic Subscriptions:** Sends real-time notifications to administration teams upon alarm state changes.
+  ![SNS Notifications](Screenshots/Employee%20Document%20Vault%20-%20SNS.png)
+
+---
+
+## Performance & Load Testing Results
+
+The production system was evaluated under load using **Artillery 2.0.33** executing against the `/files` endpoint in `us-east-1`.
+
+### Artillery Test Summary
+
+| Metric | Measured Value |
 |---|---|
-| `audit_id` | Unique audit record identifier |
-| `user_id` | Cognito username of the acting user |
-| `employee_id` | Document owner |
-| `action` | Operation performed (upload, download, delete) |
-| `document_id` | Referenced document |
-| `remarks` | Optional notes |
-| `timestamp` | ISO 8601 UTC timestamp |
+| Total HTTP Requests | 600 |
+| Successful Responses (HTTP 200) | 600 (100% Success) |
+| Failed Requests | 0 |
+| Request Throughput | 5 requests/sec |
+| Virtual Users | 10 concurrent users |
+| Minimum Latency | 236 ms |
+| Mean Latency | 440.2 ms |
+| Median Latency (P50) | 424.2 ms |
+| 95th Percentile Latency (P95) | 685.5 ms |
+| 99th Percentile Latency (P99) | 1,224.4 ms |
+| Maximum Latency | 1,396 ms |
+
+### CloudWatch Lambda Metrics Verification (`listDocuments`)
+
+| Metric | Result |
+|---|---|
+| Invocations | 605 |
+| Executions Errors | 0 |
+| Success Rate | 100% |
+| Throttles | 0 |
+| Max Concurrent Executions | 10 |
+| Average Execution Duration | 215 ms |
 
 ---
 
-## S3 Versioning
+## Project Artifacts & Documentation
 
-S3 versioning is enabled on the document bucket. When a document is updated, previous object versions are retained automatically. This provides a foundation for document history and future version-history functionality in the frontend.
+The repository contains comprehensive project evaluation artifacts and documentation files:
+
+1. **[Project Report](Employee_Document_Vault_Project_Report.docx):** Full architectural design document and implementation report.
+2. **[Security Hardening Case Study](Employee_Document_Vault_Security_Hardening_Case_Study_Mentor_Ready_v2.pdf):** In-depth security review, threat modeling, and mitigation strategy.
+3. **[Cost Estimation Model](Employee_Document_Vault_Cost_Estimation.xlsx):** Detailed AWS pricing breakdown and monthly cost projection under varying load tiers.
+4. **[Artillery Load Test Report](Artillery_LoadTest_Report.pdf):** Detailed load test performance benchmarks and latency breakdown.
 
 ---
 
-## Project Structure
+## Repository Structure
 
 ```
-Employee_document_vault/
-│
+Employee_Document_Vault_with_Role_based_Access/
+├── .github/
+│   └── workflows/
+│       └── deploy.yml                                # GitHub Actions CI/CD pipeline
+├── architecture diagram/
+│   └── WhatsApp Image 2026-09-16 at 00.51.29.jpeg    # Architecture diagram image
 ├── lambda/
 │   ├── deleteDocument/
-│   │   └── lambda_function.py
+│   │   └── lambda_function.py                        # Soft-delete Lambda handler
 │   ├── downloadDocument/
-│   │   └── lambda_function.py
+│   │   └── lambda_function.py                        # Pre-signed download URL generator
 │   ├── listDocuments/
-│   │   └── lambda_function.py
+│   │   └── lambda_function.py                        # Role-filtered document lister
 │   └── uploadDocument/
-│       └── lambda_function.py
-│
+│       └── lambda_function.py                        # Pre-signed upload URL generator
+├── Screenshots/                                      # Monitoring & alarm screenshots
 ├── tests/
-│   └── test_basic.py
-│
-└── .github/
-    └── workflows/
-        └── deploy.yml
+│   └── test_basic.py                                 # Automated Python test suite
+├── .gitignore                                        # Excluded files & environment rules
+├── Artillery_LoadTest_Report.pdf                     # Artillery performance test report
+├── Employee_Document_Vault_Cost_Estimation.xlsx      # AWS cost estimation spreadsheet
+├── Employee_Document_Vault_Project_Report.docx       # Project documentation report
+├── Employee_Document_Vault_Security_Hardening...pdf  # Security case study
+└── Readme.md                                         # Project documentation
 ```
 
 ---
 
-## CI/CD Pipeline
+## CI/CD Deployment Pipeline
 
-The project uses GitHub Actions for automated testing and Lambda deployment.
+The project utilizes GitHub Actions (`.github/workflows/deploy.yml`) for continuous integration and automated deployment to AWS.
 
-**Workflow: `.github/workflows/deploy.yml`**
+### Pipeline Workflow Steps
 
-On every push to `main`, the pipeline:
-
-1. Checks out the repository
-2. Sets up Python 3.12
-3. Installs test dependencies and runs the test suite
-4. Authenticates to AWS using **GitHub OIDC** (no long-lived access keys stored in GitHub)
-5. Packages each Lambda function into a zip archive
-6. Deploys all four Lambda functions via `aws lambda update-function-code`
-
-The deployment IAM role is scoped to the project's GitHub repository and `main` branch, with permissions limited to the intended Lambda functions.
+1. **Code Checkout & Setup:** Checks out repository code and initializes Python 3.12 environment.
+2. **Automated Testing:** Runs `pytest` suite across all Lambda function modules.
+3. **Keyless AWS Authentication:** Authenticates to AWS via **GitHub OIDC** assuming a dedicated IAM role (eliminating long-lived secret keys).
+4. **Packaging & Deployment:** Compresses Lambda source code and deploys updates using `aws lambda update-function-code`.
 
 ---
 
-## Testing
+## Automated Testing
 
-### Automated Tests
+Automated sanity and syntax verification tests are executed using `pytest`.
 
-The test suite is located at `tests/test_basic.py` and verifies:
-
-- All Lambda source files are present
-- Each source file contains valid Python syntax
-- Each Lambda module defines a `lambda_handler` function
-
-**Run locally:**
+### Running Tests Locally
 
 ```bash
 pip install pytest
 pytest -q
 ```
 
----
-
-## Load Testing Results
-
-The production `/files` endpoint was tested using **Artillery 2.0.33**.
-
-**Test configuration:**
-
-| Parameter | Value |
-|---|---|
-| Endpoint | `GET /files` |
-| Environment | AWS `us-east-1` / `prod` stage |
-| Tool | Artillery 2.0.33 |
-| Load phase duration | 60 seconds |
-| Maximum virtual users | 10 |
-| Authentication | Cognito JWT |
-
-**Artillery results:**
-
-| Metric | Result |
-|---|---|
-| Total requests | 600 |
-| HTTP 200 responses | 600 |
-| HTTP errors | 0 |
-| Request rate | 5 req/sec |
-| Failed virtual users | 0 |
-| Min latency | 236 ms |
-| Mean latency | 440.2 ms |
-| Median latency | 424.2 ms |
-| P95 latency | 685.5 ms |
-| P99 latency | 1,224.4 ms |
-| Max latency | 1,396 ms |
-
-**CloudWatch verification (listDocuments Lambda):**
-
-| Metric | Result |
-|---|---|
-| Invocations | 605 |
-| Errors | 0 |
-| Success rate | 100% |
-| Throttles | 0 |
-| Max concurrent executions | 10 |
-| Average duration | 215 ms |
-| Max duration | 398 ms |
-
-> The CloudWatch invocation count is slightly higher than the Artillery count because the monitoring window captured a small amount of non-load-test activity. The Artillery count is the authoritative load-test figure.
-
-**AWS X-Ray trace path:**
-
-```
-Client → API Gateway (/prod) → listDocuments Lambda
-```
-
-No HTTP errors, Lambda errors, or throttles were observed during the test.
+The test suite validates:
+- Presence of required Lambda directory structures.
+- Syntactic correctness of Python handlers.
+- Export of valid `lambda_handler` entry points.
 
 ---
 
-## Security
+## Security Hardening & Best Practices
 
-The system applies layered security controls:
-
-- **Cognito authentication** — all requests require a valid JWT
-- **API Gateway Cognito Authorizer** — validates the token before reaching Lambda
-- **Lambda-level authorization** — enforces role and ownership rules per request
-- **IAM permissions** — least-privilege roles for Lambda execution and deployment
-- **Soft deletion** — documents are marked `deleted = true`; the S3 object is retained
-- **Audit logging** — all write operations are recorded in DynamoDB
-- **S3 versioning** — object versions are preserved
-
-**Do not commit any of the following to the repository:**
-
-- AWS access keys or secret keys
-- Cognito user passwords or JWT tokens
-- GitHub secret values
-- Any private credentials
-
-Use GitHub Actions secrets and AWS Secrets Manager or Parameter Store for sensitive configuration values.
+- **Zero Trust Authentication:** API Gateway enforces Cognito authorizer validation before passing requests to compute layers.
+- **Data Encryption:** Server-Side Encryption enabled on S3 buckets (`SSE-S3`) and DynamoDB tables.
+- **Short-Lived Pre-Signed URLs:** S3 object access occurs strictly via time-limited pre-signed URLs (15-minute expiration).
+- **Soft Deletion Policy:** Records are marked `deleted = true` in DynamoDB, maintaining object history without immediate permanent data loss.
+- **OIDC Deployment Security:** Deployment pipeline relies on AWS IAM OIDC federation tied specifically to the repository `main` branch.
 
 ---
 
-## Limitations and Future Improvements
+## Future Enhancements
 
-| Area | Description |
-|---|---|
-| Pre-signed uploads | Upload directly to S3 via pre-signed PUT URLs rather than routing file bytes through API Gateway and Lambda |
-| Advanced document search | Introduce a scalable search mechanism (e.g. OpenSearch) for larger document collections |
-| CloudWatch dashboards and alarms | Add operational dashboards, latency thresholds, and automated alerting |
-| Audit record protection | Apply more restrictive IAM controls and dedicated retention policies to the audit table |
-| Version history UI | Expose previous S3 object versions through the frontend |
-| Pagination | Improve list performance as the document count grows |
-| Document notifications | Notify users via SNS or SES when documents are uploaded or updated |
-| Extended CI/CD | Automate deployment of API Gateway configuration and infrastructure changes |
+- **Direct S3 Multipart Pre-Signed Uploads:** Support client-side direct S3 uploads for large file payloads.
+- **OpenSearch Integration:** Enable full-text search capability across document metadata and file content.
+- **Automated Infrastructure as Code (IaC):** Provision resources using Terraform or AWS CDK.
+- **Advanced Audit Retention:** Export DynamoDB audit trails to Amazon S3 Glacier for long-term compliance storage.
 
 ---
 
 ## License
 
-This project was developed as an academic implementation of a serverless employee document management system on AWS.
+This project was developed as an enterprise serverless document management system reference implementation on AWS.
